@@ -72,21 +72,19 @@ const validateTeam = async (team) => {
 };
 
 exports.addteam = async (req, res) => {
-console.log(req.body,'reeeeeee')
-const { teamName, players, captain, viceCaptain,email,totalpoints } = req.body;
+    const { teamName, players, captain, viceCaptain, email, totalpoints } = req.body;
 
     if (!teamName || !players || !captain || !viceCaptain) {
         return res.status(400).json({ error: 'All fields are required' });
-    } 
+    }
 
-    const team = { teamName, players, captain, viceCaptain,totalpoints };
+    const team = { teamName, players, captain, viceCaptain, totalpoints };
     const validationError = await validateTeam(team);
     if (validationError) {
-        return res.status(400).json({ error: validationError,player:players });
-    } 
+        return res.status(400).json({ error: validationError, player: players });
+    }
     const user = await User.findOne({ email });
     const newTeam = new Team(team);
-    console.log(newTeam,'tttttttt')
 
     try {
         const updatedUser = await User.findOneAndUpdate(
@@ -94,7 +92,7 @@ const { teamName, players, captain, viceCaptain,email,totalpoints } = req.body;
             { $push: { teams: newTeam } },
             { new: true }
         );
-       await processResult()
+        await processResult(email)
         res.status(201).json({ message: 'Team added successfully', team: newTeam });
     } catch (error) {
         res.status(500).json({ error: 'Failed to add team' });
@@ -127,15 +125,14 @@ const points = {
     }
 };
 
-
-
 const updatePlayerPoints = (playerPoints, playerName, pointsToAdd) => {
     if (!playerPoints[playerName]) {
         playerPoints[playerName] = 0;
     }
     playerPoints[playerName] += pointsToAdd;
 };
-const processResult = async () => {
+
+const processResult = async (email) => {
     try {
         // Load match data
         const matchDataPath = path.join(__dirname, '../data/match.json');
@@ -174,20 +171,93 @@ const processResult = async () => {
             }
         });
 
-        // Update team entries with the calculated points
-        for (const playerName in playerPoints) {
-            const pointsScored = playerPoints[playerName];
-            await User.updateMany(
-                { 'teams.players': playerName },
-                { $inc: { 'teams.$.totalPoints': pointsScored } }
-            );
-            // console.log(pointsScored,'ppp',playerName)
+        // Fetch the user and their team
+        const user = await User.findOne({ email });
+        if (!user) {
+            throw new Error('User not found');
         }
+
+        const team = user.teams.find(t => t.players.some(p => Object.keys(playerPoints).includes(p)));
+        if (!team) {
+            throw new Error('Team not found for the given email');
+        }
+
+        // Apply multipliers for captain and vice-captain
+        if (playerPoints[team.captain]) {
+            playerPoints[team.captain] *= 2;
+        }
+        if (playerPoints[team.viceCaptain]) {
+            playerPoints[team.viceCaptain] *= 1.5;
+        }
+
+        let totalPoints = 0;
+        for (const playerName in playerPoints) {
+            totalPoints += playerPoints[playerName];
+        }
+
+        // Update the team's total points
+        await User.updateOne(
+            { email: email, 'teams.players': { $in: Object.keys(playerPoints) } },
+            { $set: { 'teams.$.totalPoints': totalPoints } }
+        );
+
 
     } catch (error) {
         console.error(error);
     }
 };
+
+
+const calculateTopPerformers = async (data) => {
+    const playerScores = {};
+    const playerWickets = {};
+    data.forEach(delivery => {
+        const { batter, bowler, batsman_run, isWicketDelivery, player_out } = delivery;
+
+        // Update score for the batter
+        if (!playerScores[batter]) {
+            playerScores[batter] = 0;
+        }
+        playerScores[batter] += batsman_run;
+
+        // Update wickets for the bowler
+        if (isWicketDelivery && player_out !== 'NA') {
+            if (!playerWickets[bowler]) {
+                playerWickets[bowler] = 0;
+            }
+            playerWickets[bowler] += 1;
+        }
+    });
+
+    // Find the player with the maximum score
+    let maxScorer = null;
+    let maxScore = 0;
+    for (const player in playerScores) {
+        if (playerScores[player] > maxScore) {
+            maxScore = playerScores[player];
+            maxScorer = player;
+        }
+    }
+
+    // Find the player with the most wickets
+    let maxWicketTaker = null;
+    let maxWickets = 0;
+    for (const player in playerWickets) {
+        if (playerWickets[player] > maxWickets) {
+            maxWickets = playerWickets[player];
+            maxWicketTaker = player;
+        }
+    }
+
+    return {
+        maxScorer,
+        maxScore,
+        maxWicketTaker,
+        maxWickets,
+    };
+}
+
+
 // module.exports = { addteam }; 
 
 
