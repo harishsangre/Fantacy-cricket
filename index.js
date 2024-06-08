@@ -8,7 +8,7 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 
 
-const uri = "mongodb+srv://harishsangre00:9977303453hH@f1.l0jaxsd.mongodb.net/task-?retryWrites=true&w=majority&appName=F1"
+const uri = ""
 mongoose.connect(uri, { useNewUrlParser: true, useUnifiedTopology: true })
     .then(() => {
         console.log('Connected to MongoDB Atlas');
